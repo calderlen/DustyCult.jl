@@ -36,7 +36,7 @@ const PHYSICAL_TO_SAMPLED_LOG = Dict(
     :sigma_x_minus => :log_sigma_x_minus,
 )
 
-const DEFAULT_FIT_LABELS = Dict{Symbol,Any}(
+const DEFAULT_FIT_LABELS = Dict{Symbol,String}(
     :t0 => "t0",
     :v => "v",
     :b => "b",
@@ -55,14 +55,11 @@ const DEFAULT_FIT_LABELS = Dict{Symbol,Any}(
 )
 
 """
-    fit_samples_table(chain; scale=:physical, parameters=nothing) -> DataFrame
-
-Convert an MCMC chain into an analysis-ready table. By default the sampled
-log-space scale parameters are exponentiated into the physical dust model
-parameters used by `DustOccultationParams`.
+Convert an MCMC chain into table. By default the sampled log-space scale parameters are exponentiated into the physical dust model parameters used by `DustOccultationParams`.
 """
 function fit_samples_table(chain; scale=:physical, parameters=nothing)
-    scale = _fit_sample_scale(scale)
+    scale = Symbol(scale)
+    scale in (:physical, :sampled) || throw(ArgumentError("scale must be :physical or :sampled"))
     requested = _fit_sample_parameters(scale, parameters)
     source = DataFrame(chain)
     samples = DataFrame()
@@ -71,7 +68,7 @@ function fit_samples_table(chain; scale=:physical, parameters=nothing)
         if scale === :physical
             _insert_physical_parameter!(samples, source, parameter)
         else
-            _insert_sampled_parameter!(samples, source, parameter)
+            samples[!, parameter] = source[!, parameter]
         end
     end
 
@@ -79,10 +76,7 @@ function fit_samples_table(chain; scale=:physical, parameters=nothing)
 end
 
 """
-    posterior_predictive_fluxes(chain, grid, times, wavelengths, star; n_draws=200, rng=Random.default_rng()) -> Matrix
-
-Draw posterior samples from `chain` and evaluate model fluxes for each draw.
-Rows correspond to posterior draws and columns correspond to `times`.
+Draw posterior samples from `chain` and evaluate model fluxes for each draw. Rows correspond to posterior draws and columns correspond to `times`.
 """
 function posterior_predictive_fluxes(chain, grid, times, wavelengths, star; n_draws=200, rng=Random.default_rng())
     sample_table = fit_samples_table(chain; scale=:physical)
@@ -90,14 +84,22 @@ function posterior_predictive_fluxes(chain, grid, times, wavelengths, star; n_dr
     draw_count = min(n_draws, n_samples)
     draw_indices = draw_count == n_samples ? collect(1:n_samples) : Random.randperm(rng, n_samples)[1:draw_count]
 
-    _posterior_predictive_fluxes(sample_table, draw_indices, grid, times, wavelengths, star)
+    first_dust = _dust_params_from_sample(sample_table, first(draw_indices))
+    first_prediction = collect(dust_model_fluxes(grid, times, wavelengths, star, first_dust))
+    predictions = Matrix{Float64}(undef, length(draw_indices), length(first_prediction))
+    predictions[1, :] = first_prediction
+
+    for row in 2:length(draw_indices)
+        draw_index = draw_indices[row]
+        dust = _dust_params_from_sample(sample_table, draw_index)
+        predictions[row, :] = dust_model_fluxes(grid, times, wavelengths, star, dust)
+    end
+
+    predictions
 end
 
 """
-    posterior_predictive_intervals(predictions) -> NamedTuple
-
-Summarize posterior predictive flux draws into 95%, 68%, and median intervals.
-`predictions` should have posterior draws in rows and prediction points in columns.
+Summarize posterior predictive flux draws into 95%, 68%, and median intervals. `predictions` should have posterior draws in rows and prediction points in columns.
 """
 function posterior_predictive_intervals(predictions)
     qs = [quantile(view(predictions, :, index), [0.025, 0.16, 0.5, 0.84, 0.975]) for index in axes(predictions, 2)]
@@ -111,10 +113,6 @@ function posterior_predictive_intervals(predictions)
     )
 end
 
-function _fit_sample_scale(scale)
-    Symbol(scale)
-end
-
 function _fit_sample_parameters(scale, parameters)
     if parameters === nothing
         return collect(scale === :physical ? PHYSICAL_FIT_PARAMETERS : SAMPLED_FIT_PARAMETERS)
@@ -123,11 +121,6 @@ function _fit_sample_parameters(scale, parameters)
     else
         return Symbol.(collect(parameters))
     end
-end
-
-function _insert_sampled_parameter!(target, source, parameter)
-    target[!, parameter] = source[!, parameter]
-    target
 end
 
 function _insert_physical_parameter!(target, source, parameter)
@@ -139,21 +132,6 @@ function _insert_physical_parameter!(target, source, parameter)
     end
 
     target
-end
-
-function _posterior_predictive_fluxes(sample_table, draw_indices, grid, times, wavelengths, star)
-    first_dust = _dust_params_from_sample(sample_table, first(draw_indices))
-    first_prediction = collect(dust_model_fluxes(grid, times, wavelengths, star, first_dust))
-    predictions = Matrix{Float64}(undef, length(draw_indices), length(first_prediction))
-    predictions[1, :] = first_prediction
-
-    for row in 2:length(draw_indices)
-        draw_index = draw_indices[row]
-        dust = _dust_params_from_sample(sample_table, draw_index)
-        predictions[row, :] = dust_model_fluxes(grid, times, wavelengths, star, dust)
-    end
-
-    predictions
 end
 
 function _dust_params_from_sample(sample_table, row)
