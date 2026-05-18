@@ -29,6 +29,16 @@ function lightcurve_from_delta_magnitudes(time, delta_mag, mag_error, band, band
     LightCurve(time, relative_flux, relative_flux_error, band, wavelength)
 end
 
+function lightcurve_from_relative_fluxes(time, relative_flux, relative_flux_error, band, bandpass)
+    time = collect(time)
+    relative_flux = collect(relative_flux)
+    relative_flux_error = collect(relative_flux_error)
+    band = string.(collect(band))
+    wavelength = [bandpass[name].wavelength for name in band]
+
+    LightCurve(time, relative_flux, relative_flux_error, band, wavelength)
+end
+
 function lightcurve_from_magnitudes(time, mag, mag_error, band, bandpass, reference_magnitude)
     mag = collect(mag)
     band = string.(collect(band))
@@ -38,6 +48,34 @@ function lightcurve_from_magnitudes(time, mag, mag_error, band, bandpass, refere
     ]
 
     lightcurve_from_delta_magnitudes(time, delta_mag, mag_error, band, bandpass)
+end
+
+"""
+Read a delimited light-curve file containing relative fluxes and flux errors.
+"""
+function read_relative_flux_lightcurve(path, bandpass; time_col = :time, relative_flux_col = :relative_flux, relative_flux_error_col = :relative_flux_error, band_col = :band)
+    row = _read_delimited_rows(path)
+    header = row[1]
+    data = row[2:end]
+
+    time_idx = _column_index(header, time_col)
+    relative_flux_idx = _column_index(header, relative_flux_col)
+    relative_flux_error_idx = _column_index(header, relative_flux_error_col)
+    band_idx = _column_index(header, band_col)
+
+    time = Float64[]
+    relative_flux = Float64[]
+    relative_flux_error = Float64[]
+    band = String[]
+
+    for entry in data
+        push!(time, parse(Float64, entry[time_idx]))
+        push!(relative_flux, parse(Float64, entry[relative_flux_idx]))
+        push!(relative_flux_error, parse(Float64, entry[relative_flux_error_idx]))
+        push!(band, entry[band_idx])
+    end
+
+    lightcurve_from_relative_fluxes(time, relative_flux, relative_flux_error, band, bandpass)
 end
 
 function read_delta_magnitude_lightcurve(path, bandpass; time_col = :time, delta_mag_col = :delta_mag, mag_error_col = :mag_error, band_col = :band)
@@ -126,4 +164,11 @@ function _split_delimited_line(line, delimiter)
     end
 end
 
-_column_index(header, column) = findfirst(==(string(column)), header)
+function _column_index(header, column)
+    column_name = string(column)
+    index = findfirst(==(column_name), header)
+
+    index === nothing && throw(ArgumentError("missing required column $column_name; available columns: $(join(header, ", "))"))
+
+    index
+end
