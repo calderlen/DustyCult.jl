@@ -16,7 +16,6 @@ end
 
 function reduced_chi2(observed, modeled, errors, n_parameters)
     dof = length(observed) - n_parameters
-
     chi2(observed, modeled, errors) / dof
 end
 
@@ -65,15 +64,5 @@ function sample_dust_transit(grid, times, wavelengths, observed, errors, star::S
     model = dust_transit_model(grid, times, wavelengths, observed, errors, star, priors)
     sampler = Turing.NUTS(; adtype=AutoForwardDiff())
 
-    Turing.sample(
-        model,
-        sampler,
-        parallel,
-        n_samples,
-        n_chains;
-        num_warmup=n_adapt,
-        discard_initial=n_adapt,
-        progress=progress,
-        kwargs...,
-    )
+    Turing.sample(model, sampler, parallel, n_samples, n_chains;num_warmup=n_adapt, discard_initial=n_adapt, progress=progress, kwargs...,)
 end

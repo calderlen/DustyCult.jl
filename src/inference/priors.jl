@@ -13,33 +13,26 @@ Base.@kwdef struct DustPriors
     log_sigma_x_minus
 end
 
-"""
-Build data-informed default priors for the dust transit model from a `LightCurve`.
-"""
 function default_dust_priors(lightcurve::LightCurve; kwargs...)
     default_dust_priors(lightcurve.time, lightcurve.wavelength, lightcurve.relative_flux; kwargs...)
 end
 
 """
-Build data-informed default priors from fit arrays.
-
-The priors are centered on the deepest observed point, the median wavelength,
-and a half-depth dip-duration estimate. Positive model scales are represented
-as log-space normal priors to match `dust_transit_model`.
+The priors are centered on the deepest observed point, the median wavelength, and a half-depth dip-duration estimate. Positive model scales are represented as log-space normal priors to match `dust_transit_model`.
 """
 function default_dust_priors(times, wavelengths, observed;
-    t0_center = nothing,
+    t0_center = nothing, # time when the dust occulter center is at x=0
     t0_width = nothing,
     log_v_width = 1.0,
-    b_center = 0.0,
+    b_center = 0.0, # impact parameter
     b_width = 0.5,
     log_tau0_width = 1.5,
     log_lambda0_width = 0.25,
-    alpha_center = 0.0,
+    alpha_center = 0.0, # dust opacity color slope, so alpha > 0 means more opaque at shorter wavelengths
     alpha_width = 2.0,
-    log_sigma_width = 0.75,
-    min_depth = 1e-3,
-    min_duration = 1e-6,
+    log_sigma_width = 0.75, 
+    min_depth = 1e-3, # optical depth floor
+    min_duration = 1e-6, #time floor
 )
     time = collect(times)
     flux = collect(observed)
