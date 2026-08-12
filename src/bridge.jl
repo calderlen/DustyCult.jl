@@ -157,7 +157,7 @@ function write_fit_outputs(fit, output_dir::AbstractString, config; config_path=
     end
 
     manifest_path = joinpath(output_dir, "manifest.json")
-    write_fit_manifest(manifest_path, config, paths; config_path=config_path, output_dir=output_dir)
+    write_fit_manifest(manifest_path, config, paths; config_path=config_path, output_dir=output_dir, fit=fit)
     paths["manifest"] = abspath(manifest_path)
 
     paths
@@ -220,7 +220,7 @@ function predictive_fluxes_table(fit)
     table
 end
 
-function write_fit_manifest(path, config, artifact_paths; config_path=nothing, output_dir=nothing)
+function write_fit_manifest(path, config, artifact_paths; config_path=nothing, output_dir=nothing, fit=nothing)
     manifest = Dict{String,Any}(
         "schema_version" => FIT_OUTPUT_SCHEMA_VERSION,
         "package" => Dict{String,Any}(
@@ -233,6 +233,13 @@ function write_fit_manifest(path, config, artifact_paths; config_path=nothing, o
         "config" => config,
         "artifacts" => artifact_paths,
     )
+    if fit !== nothing && hasproperty(fit, :time_zero)
+        fit_time_mode = hasproperty(fit, :fit_time_mode) ? getproperty(fit, :fit_time_mode) : :relative
+        manifest["fit_time"] = Dict{String,Any}(
+            "mode" => string(fit_time_mode),
+            "time_zero" => getproperty(fit, :time_zero),
+        )
+    end
 
     open(path, "w") do io
         JSON3.pretty(io, manifest)

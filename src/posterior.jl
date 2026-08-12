@@ -57,7 +57,7 @@ const DEFAULT_FIT_LABELS = Dict{Symbol,String}(
 """
 Convert an MCMC chain into table. By default the sampled log-space scale parameters are exponentiated into the physical dust model parameters used by `DustOccultationParams`.
 """
-function fit_samples_table(chain; scale=:physical, parameters=nothing)
+function fit_samples_table(chain; scale=:physical, parameters=nothing, t0_offset=0.0)
     scale = Symbol(scale)
     scale in (:physical, :sampled) || throw(ArgumentError("scale must be :physical or :sampled"))
     requested = _fit_sample_parameters(scale, parameters)
@@ -71,6 +71,8 @@ function fit_samples_table(chain; scale=:physical, parameters=nothing)
             samples[!, parameter] = source[!, parameter]
         end
     end
+
+    _offset_t0!(samples, t0_offset)
 
     samples
 end
@@ -132,6 +134,15 @@ function _insert_physical_parameter!(target, source, parameter)
     end
 
     target
+end
+
+function _offset_t0!(samples, t0_offset)
+    t0_offset = Float64(t0_offset)
+    if t0_offset != 0.0 && hasproperty(samples, :t0)
+        samples[!, :t0] = samples[!, :t0] .+ t0_offset
+    end
+
+    samples
 end
 
 function _dust_params_from_sample(sample_table, row)

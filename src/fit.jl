@@ -1,4 +1,5 @@
 using Random
+using Statistics: median
 
 """
 Fit a `LightCurve` with the dust transit model and return posterior products.
@@ -11,10 +12,18 @@ function fit_dust_transit(lightcurve::LightCurve, grid, star::StarParams;
     kwargs...,
 )
     inputs = fit_inputs(lightcurve)
-    fit_priors = priors === nothing ? default_dust_priors(lightcurve; prior_kwargs...) : priors
+    time_zero = _fit_time_zero(lightcurve, prior_kwargs)
+    fit_times = inputs.times .- time_zero
+    fit_prior_kwargs = _centered_prior_kwargs(prior_kwargs, time_zero)
+    fit_priors = priors === nothing ? default_dust_priors(
+        fit_times,
+        inputs.wavelengths,
+        inputs.observed;
+        fit_prior_kwargs...,
+    ) : priors
     chain = sample_dust_transit(
         grid,
-        inputs.times,
+        fit_times,
         inputs.wavelengths,
         inputs.observed,
         inputs.errors,
@@ -22,12 +31,12 @@ function fit_dust_transit(lightcurve::LightCurve, grid, star::StarParams;
         fit_priors;
         kwargs...,
     )
-    samples = fit_samples_table(chain; scale=:physical)
-    sampled_samples = fit_samples_table(chain; scale=:sampled)
+    samples = fit_samples_table(chain; scale=:physical, t0_offset=time_zero)
+    sampled_samples = fit_samples_table(chain; scale=:sampled, t0_offset=time_zero)
     predictive_fluxes = n_predictive_draws === nothing ? nothing : posterior_predictive_fluxes(
         chain,
         grid,
-        inputs.times,
+        fit_times,
         inputs.wavelengths,
         star;
         n_draws=n_predictive_draws,
@@ -38,6 +47,14 @@ function fit_dust_transit(lightcurve::LightCurve, grid, star::StarParams;
     (;
         lightcurve,
         inputs,
+        fit_inputs=(;
+            times=fit_times,
+            wavelengths=inputs.wavelengths,
+            observed=inputs.observed,
+            errors=inputs.errors,
+        ),
+        time_zero,
+        fit_time_mode=:relative,
         priors=fit_priors,
         chain,
         samples,
@@ -67,6 +84,50 @@ function fit_relative_flux_lightcurve(path, bandpass, grid, star::StarParams;
     )
 
     fit_dust_transit(lightcurve, grid, star; kwargs...)
+end
+
+function _fit_time_zero(lightcurve::LightCurve, prior_kwargs)
+    t0_center = _prior_kwarg(prior_kwargs, :t0_center, nothing)
+    t0_center === nothing || return Float64(t0_center)
+
+    median(Float64.(lightcurve.time))
+end
+
+function _centered_prior_kwargs(prior_kwargs, time_zero)
+    prior_kwargs === nothing && return (;)
+
+    values = Dict{Symbol,Any}()
+    for (key, value) in pairs(prior_kwargs)
+        symbol = Symbol(key)
+        values[symbol] = symbol === :t0_center && value !== nothing ? Float64(value) - time_zero : value
+    end
+
+    (; values...)
+end
+
+function _prior_kwarg(prior_kwargs, key::Symbol, default)
+    prior_kwargs === nothing && return default
+
+    try
+        if haskey(prior_kwargs, key)
+            return prior_kwargs[key]
+        end
+    catch
+    end
+
+    string_key = string(key)
+    try
+        if haskey(prior_kwargs, string_key)
+            return prior_kwargs[string_key]
+        end
+    catch
+    end
+
+    if prior_kwargs isa NamedTuple && hasproperty(prior_kwargs, key)
+        return getproperty(prior_kwargs, key)
+    end
+
+    default
 end
 
 """
